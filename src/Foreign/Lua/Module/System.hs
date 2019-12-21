@@ -25,6 +25,7 @@ module Foreign.Lua.Module.System (
   , getwd
   , getenv
   , ls
+  , make_relative_path
   , mkdir
   , rmdir
   , setenv
@@ -46,6 +47,7 @@ import Foreign.Lua.Module.SystemUtils
 
 import qualified Data.Map as Map
 import qualified Foreign.Lua as Lua
+import qualified System.FilePath as Path
 import qualified System.Directory as Directory
 import qualified System.Environment as Env
 import qualified System.Info as Info
@@ -67,6 +69,7 @@ pushModule = do
   Lua.addfunction "getenv" getenv
   Lua.addfunction "getwd" getwd
   Lua.addfunction "ls" ls
+  Lua.addfunction "make_relative_path" make_relative_path
   Lua.addfunction "mkdir" mkdir
   Lua.addfunction "rmdir" rmdir
   Lua.addfunction "setenv" setenv
@@ -131,6 +134,15 @@ ls :: Optional FilePath -> Lua [FilePath]
 ls fp = do
   let fp' = fromMaybe "." (fromOptional fp)
   ioToLua (Directory.listDirectory fp')
+
+-- | Contract a filename, based on a relative path. Uses the current
+-- working directory of no base path is given.
+make_relative_path :: FilePath -> Optional FilePath -> Lua FilePath
+make_relative_path filename baseDir = do
+  baseDir' <- case fromOptional baseDir of
+                Nothing -> getwd
+                Just bd -> return bd
+  return $ Path.makeRelative baseDir' filename
 
 -- | Create a new directory which is initially empty, or as near to
 -- empty as the operating system allows.
