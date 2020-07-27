@@ -257,7 +257,7 @@ Returns:
 
 ### Path Manipulation Functions
 
-This library includes wrappers around the following functions from the [filepath](https://hackage.haskell.org/package/filepath-1.4.2.1/docs/System-FilePath.html) library for the current platform (POSIX or Windows). All examples below are for (POSIX systems)[https://hackage.haskell.org/package/filepath-1.4.2.1/docs/System-FilePath-Posix.html].
+This library includes wrappers around the following functions from the [filepath](https://hackage.haskell.org/package/filepath-1.4.2.1/docs/System-FilePath.html) library for the current platform (POSIX or Windows). All examples below are for [POSIX systems](https://hackage.haskell.org/package/filepath-1.4.2.1/docs/System-FilePath-Posix.html).
 
 #### take_directory
 
