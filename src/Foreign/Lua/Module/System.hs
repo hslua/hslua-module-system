@@ -40,8 +40,14 @@ import Control.Applicative ((<$>))
 import Control.Monad (forM_)
 import Control.Monad.Catch (bracket)
 import Data.Maybe (fromMaybe)
+import Data.Text (Text)
 import Data.Version (versionBranch)
-import Foreign.Lua (Lua, NumResults (..), Optional (..))
+import Foreign.Lua (Lua, NumResults (..), Peekable, Pushable, StackIndex)
+import Foreign.Lua.Call hiding (render)
+import Foreign.Lua.Module hiding (preloadModule, pushModule, render)
+import Foreign.Lua.Peek
+  (Peeker, peekIntegral, peekList, peekString, peekText, toPeeker)
+import Foreign.Lua.Push (Pusher, pushBool, pushIntegral, pushText)
 import Foreign.Lua.Module.SystemUtils
 
 import qualified Data.Map as Map
@@ -55,54 +61,93 @@ import qualified System.IO.Temp as Temp
 -- Module
 --
 
+-- | Textual description of the "doclayout" module.
+description :: Text
+description = "Plain-text document layouting."
+
+-- | Self-documenting module.
+documentedModule :: Module
+documentedModule = Module
+  { moduleName = "system"
+  , moduleFields = fields
+  , moduleDescription = description
+  , moduleFunctions = functions
+  }
+
 -- | Pushes the @system@ module to the Lua stack.
 pushModule :: Lua NumResults
-pushModule = do
-  Lua.newtable
-  Lua.addfield "arch" arch
-  Lua.addfield "compiler_name" compiler_name
-  Lua.addfield "compiler_version" compiler_version
-  Lua.addfield "os" os
-  Lua.addfunction "env" env
-  Lua.addfunction "getenv" getenv
-  Lua.addfunction "getwd" getwd
-  Lua.addfunction "ls" ls
-  Lua.addfunction "mkdir" mkdir
-  Lua.addfunction "rmdir" rmdir
-  Lua.addfunction "setenv" setenv
-  Lua.addfunction "setwd" setwd
-  Lua.addfunction "tmpdirname" tmpdirname
-  Lua.addfunction "with_env" with_env
-  Lua.addfunction "with_tmpdir" with_tmpdir
-  Lua.addfunction "with_wd" with_wd
-  return 1
+pushModule = 1 <$ pushModule' documentedModule
 
--- | Add the @system@ module under the given name to the table of
--- preloaded packages.
+pushModule' :: Module -> Lua ()
+pushModule' mdl = do
+  Module.pushModule mdl
+  forM_ (moduleFields mdl) $ \field -> do
+    pushText (fieldName field)
+    fieldPushValue field
+    Lua.rawset (Lua.nth 3)
+
+-- | Add the @system@ module under the given name to the table
+-- of preloaded packages.
 preloadModule :: String -> Lua ()
-preloadModule = flip Lua.preloadhs pushModule
+preloadModule name = Module.preloadModule $
+  documentedModule { moduleName = T.pack name }
 
 --
 -- Fields
 --
 
--- | The machine architecture on which the program is running.
-arch :: String
-arch = Info.arch
+-- | Exposed fields.
+fields :: [Field]
+fields =
+  [ arch
+  , compiler_name
+  , compiler_version
+  , os
+  ]
 
--- | The Haskell implementation with which the host program was
--- compiled.
-compiler_name :: String
-compiler_name = Info.compilerName
+--
+-- Fields
+--
 
--- | The version of `compiler_name` with which the host program was
--- compiled.
-compiler_version :: [Int]
-compiler_version = versionBranch Info.compilerVersion
+-- | Module field containing the machine architecture on which the
+-- program is running. Wraps @'Info.arch'@
+arch :: Field
+arch = Field
+  { fieldName = "arch"
+  , fieldDescription = "The machine architecture on which the program "
+                       <> "is running."
+  , fieldPushValue = pushString Info.arch
+  }
 
--- | The operating system on which the program is running.
-os :: String
-os = Info.os
+-- | Module field containing the Haskell implementation with which the
+-- host program was compiled. Wraps @'Info.compilerName'@.
+compiler_name :: Field
+compiler_name = Field
+  { fieldName = "compiler_name"
+  , fieldDescription = "The Haskell implementation with which the host "
+                       <> "program was compiled."
+  , fieldPushValue = pushString Info.compilerName
+  }
+
+-- | Module field containing the version of `compiler_name` with which
+-- the host program was compiled.
+compiler_version :: Field
+compiler_version = Field
+  { fieldName = "compiler_version"
+  , fieldDescription = "The Haskell implementation with which the host "
+                       <> "program was compiled."
+  , fieldPushValue = pushList pushIntegral Info.compilerVersion
+  }
+
+-- | Field containing the operating system on which the program is
+-- running.
+os :: Field
+os = Field
+  { fieldName = "os"
+  , fieldDescription = "The operating system on which the program is "
+                       <> "running."
+  , fieldPushValue = pushString Info.os
+  }
 
 
 --
@@ -111,12 +156,19 @@ os = Info.os
 
 -- | Retrieve the entire environment
 env :: Lua NumResults
-env = do
-  kvs <- ioToLua Env.getEnvironment
-  let addValue (k, v) = Lua.push k *> Lua.push v *> Lua.rawset (-3)
-  Lua.newtable
-  mapM_ addValue kvs
-  return (NumResults 1)
+env = HaskellFunction
+  { callFunction = do
+      kvs <- ioToLua Env.getEnvironment
+      let addValue (k, v) = Lua.push k *> Lua.push v *> Lua.rawset (-3)
+      Lua.newtable
+      mapM_ addValue kvs
+      return (NumResults 1)
+  , functionDoc = Just $ FunctionDoc
+    { functionDescription = ""
+    , parameterDocs = []
+    , functionResultDocs = []
+    }
+  }
 
 -- | Return the current working directory as an absolute path.
 getwd :: Lua FilePath
